@@ -96,7 +96,16 @@ def get_gemini_model(models):
 def parse_resume(resume_text, model_name):
     """Parse the resume text to extract structured information."""
     try:
-        model = genai.GenerativeModel(model_name)
+        # Configure safety settings for newer API versions
+        safety_settings = {
+            "HARASSMENT": "BLOCK_NONE",
+            "HATE_SPEECH": "BLOCK_NONE",
+            "SEXUALLY_EXPLICIT": "BLOCK_NONE",
+            "DANGEROUS_CONTENT": "BLOCK_NONE",
+        }
+        
+        # Create model with updated settings
+        model = genai.GenerativeModel(model_name, safety_settings=safety_settings)
         
         prompt = f"""
         Parse the following resume into structured sections. 
@@ -125,7 +134,16 @@ def parse_resume(resume_text, model_name):
 def analyze_job_description(job_description, model_name):
     """Extract key requirements and skills from the job description."""
     try:
-        model = genai.GenerativeModel(model_name)
+        # Configure safety settings for newer API versions
+        safety_settings = {
+            "HARASSMENT": "BLOCK_NONE",
+            "HATE_SPEECH": "BLOCK_NONE",
+            "SEXUALLY_EXPLICIT": "BLOCK_NONE",
+            "DANGEROUS_CONTENT": "BLOCK_NONE",
+        }
+        
+        # Create model with updated settings
+        model = genai.GenerativeModel(model_name, safety_settings=safety_settings)
         
         prompt = f"""
         Analyze this job description and extract:
@@ -149,7 +167,16 @@ def analyze_job_description(job_description, model_name):
 def match_resume_to_job(parsed_resume, job_requirements, model_name):
     """Match the resume to job requirements and create a tailored resume."""
     try:
-        model = genai.GenerativeModel(model_name)
+        # Configure safety settings for newer API versions
+        safety_settings = {
+            "HARASSMENT": "BLOCK_NONE",
+            "HATE_SPEECH": "BLOCK_NONE",
+            "SEXUALLY_EXPLICIT": "BLOCK_NONE",
+            "DANGEROUS_CONTENT": "BLOCK_NONE",
+        }
+        
+        # Create model with updated settings
+        model = genai.GenerativeModel(model_name, safety_settings=safety_settings)
         
         prompt = f"""
         Create a tailored resume based on the parsed resume data and job requirements.
@@ -213,7 +240,16 @@ def show_resume_comparison(original_parsed, tailored_resume):
 def analyze_resume_health(resume_text, job_description, model_name):
     """Analyze how well the resume matches the job description and provide recommendations."""
     try:
-        model = genai.GenerativeModel(model_name)
+        # Configure safety settings for newer API versions
+        safety_settings = {
+            "HARASSMENT": "BLOCK_NONE",
+            "HATE_SPEECH": "BLOCK_NONE",
+            "SEXUALLY_EXPLICIT": "BLOCK_NONE",
+            "DANGEROUS_CONTENT": "BLOCK_NONE",
+        }
+        
+        # Create model with updated settings
+        model = genai.GenerativeModel(model_name, safety_settings=safety_settings)
         
         prompt = f"""
         Analyze how well this resume matches the job description and provide actionable recommendations.
