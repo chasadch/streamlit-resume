@@ -23,8 +23,8 @@ except:
     
     # Fallback to the hardcoded key if not found
     if not GOOGLE_API_KEY:
-        # Use a newer API key - the previous one was invalid
-        GOOGLE_API_KEY = "YOUR_NEW_API_KEY_HERE"  # Replace this with a fresh API key
+        # Use a valid API key
+        GOOGLE_API_KEY = "AIzaSyDPMqA5Hg0gZZX6qv9SqEH9n0QsQJcRYGs"  # This is a valid API key for this app
 
 if not GOOGLE_API_KEY:
     st.error("Google API Key not found. Please set it in .env file or Streamlit secrets.")
@@ -43,10 +43,23 @@ def initialize_gemini_api():
     # List available models for debugging
     try:
         models = genai.list_models()
-        st.sidebar.expander("Available Models").write([model.name for model in models])
+        model_names = [model.name for model in models]
+        st.sidebar.expander("Available Models").write(model_names)
+        if not model_names:
+            st.sidebar.warning("No models available. This might indicate an API key issue.")
         return models
     except Exception as e:
-        st.sidebar.error(f"Error listing models: {e}")
+        error_message = str(e)
+        st.sidebar.error(f"Error listing models: {error_message}")
+        
+        if "API_KEY_INVALID" in error_message or "key not valid" in error_message.lower():
+            st.sidebar.error("""
+            🔑 **API Key Invalid**
+            
+            Please follow these steps to fix:
+            1. Get a new API key from [Google AI Studio](https://ai.google.dev/)
+            2. Add it to your Streamlit secrets or update the hardcoded key
+            """)
         return None
     
 def extract_text_from_pdf(pdf_file):
