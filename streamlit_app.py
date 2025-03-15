@@ -18,8 +18,12 @@ try:
     # First try to get API key from Streamlit secrets (for deployment)
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 except:
-    # Fallback to environment variable (for local development)
+    # Then try from environment variable (for local development)
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    
+    # Fallback to the hardcoded key if not found
+    if not GOOGLE_API_KEY:
+        GOOGLE_API_KEY = "AIzaSyACzpcpxui_IfgaaIw-ohVB7YtkWKjsNn0"
 
 if not GOOGLE_API_KEY:
     st.error("Google API Key not found. Please set it in .env file or Streamlit secrets.")
