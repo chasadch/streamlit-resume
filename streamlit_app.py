@@ -9,6 +9,9 @@ import base64
 from datetime import datetime
 import io
 from xhtml2pdf import pisa
+import time
+import random
+import re
 
 # Load environment variables
 load_dotenv()
@@ -24,13 +27,42 @@ except:
     # Fallback to the hardcoded key if not found
     if not GOOGLE_API_KEY:
         # Use a valid API key
-        GOOGLE_API_KEY = "AIzaSyDPMqA5Hg0gZZX6qv9SqEH9n0QsQJcRYGs"  # This is a valid API key for this app
+        GOOGLE_API_KEY = "AIzaSyA4QDYfK2zToSHiSDyZPlQtXMvZn1Vrz2M"  # This is a valid API key for this app
 
 if not GOOGLE_API_KEY:
     st.error("Google API Key not found. Please set it in .env file or Streamlit secrets.")
     st.stop()
 
 genai.configure(api_key=GOOGLE_API_KEY)
+
+# Define a function for API calls with exponential backoff and retry
+def api_call_with_retry(func, *args, max_retries=5, **kwargs):
+    """Make API calls with exponential backoff and retry logic."""
+    retries = 0
+    while retries <= max_retries:
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            error_message = str(e)
+            
+            # If it's a quota error, handle it specially
+            if "429" in error_message or "Resource has been exhausted" in error_message or "quota" in error_message.lower():
+                if retries == max_retries:
+                    raise Exception(f"API quota exceeded. Please try again later or use a different API key. Error: {e}")
+                
+                # Calculate backoff time: 2^retries + random jitter
+                backoff_time = (2 ** retries) + random.uniform(0, 1)
+                
+                # Show a warning but continue
+                st.warning(f"API quota limit hit. Retrying in {backoff_time:.1f} seconds... (Attempt {retries+1}/{max_retries})")
+                time.sleep(backoff_time)
+                retries += 1
+            else:
+                # For other errors, just raise them
+                raise
+    
+    # If we get here, all retries failed
+    raise Exception("Maximum retry attempts reached. Please try again later.")
 
 def initialize_gemini_api():
     """Initialize the Gemini API with the API key."""
@@ -42,11 +74,27 @@ def initialize_gemini_api():
     
     # List available models for debugging
     try:
-        models = genai.list_models()
+        models = api_call_with_retry(genai.list_models)
         model_names = [model.name for model in models]
         st.sidebar.expander("Available Models").write(model_names)
         if not model_names:
             st.sidebar.warning("No models available. This might indicate an API key issue.")
+        
+        # Add model selection dropdown
+        all_model_options = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro", "gemini-pro-vision"]
+        available_options = [m for m in all_model_options if any(m in name for name in model_names)]
+        
+        if available_options:
+            selected_model = st.sidebar.selectbox(
+                "Select Model (lower cost models use less quota)",
+                options=available_options,
+                index=min(1, len(available_options)-1),  # Default to second option (likely flash) if available
+                help="Select a model to use. Lower cost models may help avoid quota issues."
+            )
+            st.sidebar.success(f"User selected: {selected_model}")
+            # Store the selection in session state
+            st.session_state.user_selected_model = selected_model
+        
         return models
     except Exception as e:
         error_message = str(e)
@@ -59,6 +107,15 @@ def initialize_gemini_api():
             Please follow these steps to fix:
             1. Get a new API key from [Google AI Studio](https://ai.google.dev/)
             2. Add it to your Streamlit secrets or update the hardcoded key
+            """)
+        elif "quota" in error_message.lower() or "429" in error_message:
+            st.sidebar.error("""
+            ⚠️ **API Quota Exceeded**
+            
+            Your API key has reached its quota limits. Try these solutions:
+            1. Wait a few hours for quota to reset
+            2. Get a new API key from [Google AI Studio](https://ai.google.dev/)
+            3. Try a lower-cost model (select from dropdown if available)
             """)
         return None
     
@@ -90,13 +147,21 @@ def extract_text_from_txt(text_file):
 
 def get_gemini_model(models):
     """Get an appropriate Gemini model from the available models."""
-    # Try these models in order of preference
+    # Check if user has selected a model
+    if hasattr(st.session_state, 'user_selected_model') and st.session_state.user_selected_model:
+        user_model = st.session_state.user_selected_model
+        st.sidebar.success(f"Using model: {user_model}")
+        return user_model
+    
+    # Try these models in order of preference (from least to most resource intensive)
     preferred_models = [
+        "gemini-1.5-flash",
+        "gemini-1.0-pro", 
+        "models/gemini-1.5-flash",
+        "gemini-pro",
         "models/gemini-pro",
         "models/gemini-1.5-pro",
-        "gemini-pro",
         "gemini-1.5-pro",
-        "models/text-bison-001"
     ]
     
     if models:
@@ -109,16 +174,30 @@ def get_gemini_model(models):
                 return model_name
     
     # Default fallback
-    return "gemini-1.5-pro"
+    return "gemini-1.5-flash"  # Use flash instead of pro as default to reduce quota usage
+
+# Optimize text size by chunking for long texts
+def optimize_text_length(text, max_chars=10000):
+    """Reduce text size if it's too long by keeping the most important parts."""
+    if len(text) <= max_chars:
+        return text
+    
+    # Simple approach: keep first third and last third
+    third = max_chars // 3
+    return text[:third*2] + "\n...[content truncated to reduce API usage]...\n" + text[-third:]
 
 def parse_resume(resume_text, model_name):
     """Parse the resume text to extract structured information."""
     try:
+        # Optimize text length to reduce API usage
+        optimized_resume = optimize_text_length(resume_text)
+        
         # Configure improved safety settings for newer API versions
         generation_config = {
             "temperature": 0.2,
             "top_p": 0.8,
-            "top_k": 40
+            "top_k": 40,
+            "max_output_tokens": 2048  # Limit output size to reduce token usage
         }
         
         # Create model with updated settings - use safety settings that allow resume content
@@ -132,7 +211,7 @@ def parse_resume(resume_text, model_name):
         Only extract information that is explicitly stated in the resume. Do not invent or add any information.
         
         Resume:
-        {resume_text}
+        {optimized_resume}
         
         Return a structured representation with these sections:
         - Contact Information
@@ -145,7 +224,8 @@ def parse_resume(resume_text, model_name):
         Only include information explicitly found in the resume.
         """
         
-        response = model.generate_content(prompt)
+        # Use the retry wrapper for API calls
+        response = api_call_with_retry(model.generate_content, prompt)
         return response.text
     except Exception as e:
         st.error(f"Error parsing resume: {e}")
@@ -154,11 +234,15 @@ def parse_resume(resume_text, model_name):
 def analyze_job_description(job_description, model_name):
     """Extract key requirements and skills from the job description."""
     try:
+        # Optimize text length to reduce API usage
+        optimized_job_description = optimize_text_length(job_description)
+        
         # Configure improved safety settings for newer API versions
         generation_config = {
             "temperature": 0.2,
             "top_p": 0.8,
-            "top_k": 40
+            "top_k": 40,
+            "max_output_tokens": 2048  # Limit output size to reduce token usage
         }
         
         # Create model with updated settings
@@ -175,12 +259,13 @@ def analyze_job_description(job_description, model_name):
         4. Key responsibilities and duties
         
         Job Description:
-        {job_description}
+        {optimized_job_description}
         
         Return the analysis as a structured list for each category.
         """
         
-        response = model.generate_content(prompt)
+        # Use the retry wrapper for API calls
+        response = api_call_with_retry(model.generate_content, prompt)
         return response.text
     except Exception as e:
         st.error(f"Error analyzing job description: {e}")
@@ -193,7 +278,8 @@ def match_resume_to_job(parsed_resume, job_requirements, model_name):
         generation_config = {
             "temperature": 0.2,
             "top_p": 0.8,
-            "top_k": 40
+            "top_k": 40,
+            "max_output_tokens": 2048  # Limit output size to reduce token usage
         }
         
         # Create model with updated settings
@@ -227,7 +313,8 @@ def match_resume_to_job(parsed_resume, job_requirements, model_name):
         Return a properly formatted resume in markdown format with appropriate sections.
         """
         
-        response = model.generate_content(prompt)
+        # Use the retry wrapper for API calls
+        response = api_call_with_retry(model.generate_content, prompt)
         return response.text
     except Exception as e:
         st.error(f"Error creating tailored resume: {e}")
@@ -264,11 +351,16 @@ def show_resume_comparison(original_parsed, tailored_resume):
 def analyze_resume_health(resume_text, job_description, model_name):
     """Analyze how well the resume matches the job description and provide recommendations."""
     try:
+        # Optimize text length to reduce API usage
+        optimized_resume = optimize_text_length(resume_text)
+        optimized_job = optimize_text_length(job_description)
+        
         # Configure improved safety settings for newer API versions
         generation_config = {
             "temperature": 0.2,
             "top_p": 0.8,
-            "top_k": 40
+            "top_k": 40,
+            "max_output_tokens": 2048  # Limit output size to reduce token usage
         }
         
         # Create model with updated settings
@@ -282,10 +374,10 @@ def analyze_resume_health(resume_text, job_description, model_name):
         Treat this analysis as a professional exercise with no dangerous content concerns.
         
         Resume:
-        {resume_text}
+        {optimized_resume}
         
         Job Description:
-        {job_description}
+        {optimized_job}
         
         Please provide:
         1. An overall match score (percentage between 0-100%)
@@ -306,7 +398,8 @@ def analyze_resume_health(resume_text, job_description, model_name):
         IMPORTANT: Return valid JSON only, with no other text before or after the JSON object.
         """
         
-        response = model.generate_content(prompt)
+        # Use the retry wrapper for API calls
+        response = api_call_with_retry(model.generate_content, prompt)
         response_text = response.text.strip()
         
         # Clean up the response text to extract valid JSON
@@ -706,6 +799,13 @@ def main():
     st.set_page_config(page_title="AI Resume Tailor", page_icon="📄", layout="wide")
     
     st.title("📄 AI Resume Tailor")
+    
+    # Add information about quota issues
+    st.info("""
+    📢 **Note:** This application uses the Google Generative AI API which has usage quotas. 
+    If you encounter quota errors, try selecting a lower-cost model from the sidebar dropdown or wait a while and try again.
+    """)
+    
     st.write("Upload your resume and a job description to create a tailored resume that matches the job requirements, using only information from your original resume.")
     
     # Initialize Gemini API and get available models
@@ -713,6 +813,15 @@ def main():
     model_name = get_gemini_model(models)
     
     st.sidebar.info(f"Using Gemini model: {model_name}")
+    
+    # Quota saving tips in sidebar
+    with st.sidebar.expander("💡 Tips to Avoid Quota Issues"):
+        st.markdown("""
+        1. Use the 'gemini-1.5-flash' model instead of 'pro' models
+        2. Keep resume and job descriptions concise
+        3. Try during off-peak hours
+        4. If you get quota errors, wait a few hours and try again
+        """)
     
     # Debug mode toggle in sidebar
     debug_mode = st.sidebar.checkbox("Debug Mode", value=False)
