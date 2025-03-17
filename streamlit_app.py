@@ -8,9 +8,12 @@ import json
 import base64
 from datetime import datetime
 import io
-from xhtml2pdf import pisa
-import time
-import random
+import markdown
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from io import BytesIO
 import re
 
 # Load environment variables
@@ -539,158 +542,86 @@ def display_resume_health(health_data):
     else:
         st.markdown("No keyword analysis available.")
 
-def format_resume_with_template(tailored_resume, template_style="modern"):
-    """Apply a professional template to the resume content."""
-    # Extract relevant sections from the markdown resume
-    sections = {}
-    current_section = "header"
-    sections[current_section] = []
+def format_resume_with_template(resume_content):
+    """Format the resume content with a professional HTML template."""
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Professional Resume</title>
+        <style>
+            body {
+                font-family: 'Arial', sans-serif;
+                line-height: 1.6;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+            .header {
+                text-align: center;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                margin-bottom: 10px;
+            }
+            h2 {
+                color: #34495e;
+                border-bottom: 2px solid #3498db;
+                padding-bottom: 5px;
+                margin-top: 20px;
+            }
+            .section {
+                margin-bottom: 25px;
+            }
+            .contact-info {
+                text-align: center;
+                color: #7f8c8d;
+                margin-bottom: 20px;
+            }
+            ul {
+                list-style-type: none;
+                padding-left: 0;
+            }
+            li {
+                margin-bottom: 8px;
+            }
+            .experience-item {
+                margin-bottom: 15px;
+            }
+            .company-name {
+                font-weight: bold;
+                color: #2980b9;
+            }
+            .date {
+                color: #7f8c8d;
+                font-style: italic;
+            }
+            @media print {
+                body {
+                    padding: 20px;
+                }
+                .page-break {
+                    page-break-before: always;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        {{ resume_content | safe }}
+    </body>
+    </html>
+    """
     
-    lines = tailored_resume.split('\n')
-    for line in lines:
-        if line.startswith('# '):
-            # This is the name at the top of the resume
-            sections[current_section].append(line.replace('# ', '').strip())
-        elif line.startswith('## '):
-            # This is a main section header
-            current_section = line.replace('## ', '').strip().lower()
-            sections[current_section] = []
-        else:
-            # Add content to current section
-            if current_section in sections:
-                sections[current_section].append(line)
+    # Convert markdown to HTML
+    html_content = markdown.markdown(resume_content)
     
-    # Get name and contact info
-    name = sections.get("header", ["Your Name"])[0] if sections.get("header") else "Your Name"
-    contact_info = '\n'.join(sections.get("contact information", [])) if "contact information" in sections else ""
+    # Apply template
+    template = Template(html_template)
+    formatted_html = template.render(resume_content=html_content)
     
-    # Replace newlines with <br> for HTML display
-    contact_info_html = contact_info.replace("\n", "<br>")
-    
-    if template_style == "modern":
-        # Create CSS styles
-        css = """
-        body {
-          font-family: Arial, sans-serif;
-          line-height: 1.6;
-          color: #333;
-          margin: 0;
-          padding: 0;
-          background-color: #f9f9f9;
-        }
-        .container {
-          max-width: 8.5in;
-          margin: 0 auto;
-          background-color: white;
-          padding: 40px;
-          box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        .header {
-          text-align: center;
-          border-bottom: 2px solid #2c3e50;
-          padding-bottom: 20px;
-          margin-bottom: 20px;
-        }
-        .name {
-          font-size: 32px;
-          font-weight: bold;
-          margin-bottom: 10px;
-          color: #2c3e50;
-        }
-        .contact-info {
-          font-size: 14px;
-          margin-bottom: 15px;
-        }
-        .section {
-          margin-bottom: 25px;
-        }
-        .section-title {
-          font-size: 20px;
-          font-weight: bold;
-          color: #2c3e50;
-          border-bottom: 1px solid #ddd;
-          padding-bottom: 5px;
-          margin-bottom: 15px;
-        }
-        .summary {
-          margin-bottom: 25px;
-          font-style: italic;
-        }
-        ul {
-          margin-top: 5px;
-          margin-bottom: 15px;
-        }
-        li {
-          margin-bottom: 5px;
-        }
-        .work-item, .education-item {
-          margin-bottom: 15px;
-        }
-        .job-title, .degree {
-          font-weight: bold;
-        }
-        .company, .institution {
-          font-weight: bold;
-        }
-        .date {
-          font-style: italic;
-          color: #666;
-        }
-        @media print {
-          body {
-            background-color: white;
-          }
-          .container {
-            box-shadow: none;
-            padding: 0;
-          }
-        }
-        """
-        
-        # Create HTML structure with header
-        html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{name} - Resume</title>
-    <style>
-{css}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="name">{name}</div>
-            <div class="contact-info">{contact_info_html}</div>
-        </div>
-"""
-        
-        # Add each section
-        for section_name, section_content in sections.items():
-            if section_name not in ["header", "contact information"] and section_content:
-                section_title = section_name.title()
-                content = "\n".join(section_content)
-                content_html = content.replace("\n", "<br>")
-                
-                html += f"""
-        <div class="section">
-            <div class="section-title">{section_title}</div>
-            <div class="section-content">{content_html}</div>
-        </div>
-"""
-        
-        # Close HTML tags
-        html += """
-    </div>
-</body>
-</html>
-"""
-        
-        return html
-    else:
-        # Simple template, just return the markdown as is
-        return tailored_resume
+    return formatted_html
 
 def get_binary_file_downloader_html(bin_file, file_label='File', file_extension="txt"):
     """Generate a link to download a binary file."""
@@ -746,53 +677,129 @@ def convert_html_to_pdf(html_content):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-def show_formatted_resume(tailored_resume):
-    """Show a formatted version of the resume with download options."""
-    # Format resume with a professional template
-    html_resume = format_resume_with_template(tailored_resume)
-    
-    # Show download options
-    st.subheader("Download Options")
-    
-    # Convert HTML to PDF for download
-    pdf_buffer = convert_html_to_pdf(html_resume)
-    
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-    
-    with col1:
-        st.download_button(
-            label="📄 Download as Markdown",
-            data=tailored_resume,
-            file_name=f"tailored_resume_{datetime.now().strftime('%Y%m%d')}.md",
-            mime="text/markdown",
+def html_to_pdf(html_content):
+    """Convert HTML content to PDF using WeasyPrint."""
+    try:
+        # Create a PDF from HTML content
+        pdf = weasyprint.HTML(string=html_content).write_pdf()
+        return pdf
+    except Exception as e:
+        st.error(f"Error generating PDF: {str(e)}")
+        return None
+
+def get_pdf_download_link(pdf_content, filename="resume.pdf"):
+    """Generate a download link for PDF content."""
+    try:
+        b64 = base64.b64encode(pdf_content).decode()
+        return f'<a href="data:application/pdf;base64,{b64}" download="{filename}">Click here to download PDF</a>'
+    except Exception as e:
+        st.error(f"Error creating PDF download link: {str(e)}")
+        return None
+
+def create_pdf_from_markdown(markdown_content):
+    """Convert markdown content to PDF using ReportLab."""
+    try:
+        # Create a BytesIO buffer to receive PDF data
+        buffer = BytesIO()
+        
+        # Create the PDF document
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        styles = getSampleStyleSheet()
+        
+        # Create custom style for better formatting
+        custom_style = ParagraphStyle(
+            'CustomStyle',
+            parent=styles['Normal'],
+            fontSize=12,
+            leading=14,
+            spaceAfter=10
         )
-    
-    with col2:
-        st.markdown(
-            get_binary_file_downloader_html(html_resume, "📋 Download as HTML", "html"),
-            unsafe_allow_html=True
-        )
-    
-    with col3:
-        if pdf_buffer:
+        
+        # Convert markdown to basic HTML
+        html_content = markdown.markdown(markdown_content)
+        
+        # Split content into lines and create story
+        story = []
+        
+        # Process the HTML content
+        lines = html_content.split('\n')
+        for line in lines:
+            # Remove HTML tags for simple text processing
+            clean_line = re.sub('<[^<]+?>', '', line).strip()
+            if clean_line:
+                # Create paragraph with custom style
+                para = Paragraph(clean_line, custom_style)
+                story.append(para)
+                story.append(Spacer(1, 12))
+        
+        # Build PDF document
+        doc.build(story)
+        
+        # Get the value of the BytesIO buffer
+        pdf_content = buffer.getvalue()
+        buffer.close()
+        
+        return pdf_content
+    except Exception as e:
+        st.error(f"Error generating PDF: {str(e)}")
+        return None
+
+def show_formatted_resume(resume_content):
+    """Display the formatted resume and provide download options."""
+    try:
+        # Convert markdown to HTML for preview
+        html_content = markdown.markdown(resume_content)
+        
+        # Create PDF version
+        pdf_content = create_pdf_from_markdown(resume_content)
+        
+        # Display download options
+        st.subheader("Download Options")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            # Markdown download
             st.download_button(
-                label="📑 Download as PDF",
-                data=pdf_buffer,
-                file_name=f"tailored_resume_{datetime.now().strftime('%Y%m%d')}.pdf",
-                mime="application/pdf",
+                "📄 Download as Markdown",
+                resume_content,
+                file_name="resume.md",
+                mime="text/markdown"
             )
-        else:
-            st.error("PDF generation failed")
-    
-    with col4:
-        st.markdown(
-            f"<a href='#' onclick=\"window.print()\">🖨️ Print Resume</a>",
-            unsafe_allow_html=True
-        )
-    
-    # Display the formatted resume in an iframe
-    st.subheader("Preview of Formatted Resume")
-    st.components.v1.html(html_resume, height=600, scrolling=True)
+        
+        with col2:
+            # HTML download
+            st.download_button(
+                "🌐 Download as HTML",
+                html_content,
+                file_name="resume.html",
+                mime="text/html"
+            )
+        
+        with col3:
+            if pdf_content:
+                # PDF download
+                st.download_button(
+                    "📑 Download as PDF",
+                    pdf_content,
+                    file_name="resume.pdf",
+                    mime="application/pdf"
+                )
+            else:
+                st.error("PDF generation failed")
+        
+        with col4:
+            # Print option
+            st.markdown(
+                f'<a href="#" onclick="window.print()">🖨️ Print Resume</a>',
+                unsafe_allow_html=True
+            )
+        
+        # Preview
+        st.subheader("Preview of Formatted Resume")
+        st.markdown(html_content, unsafe_allow_html=True)
+        
+    except Exception as e:
+        st.error(f"Error displaying formatted resume: {str(e)}")
 
 # Streamlit UI
 def main():
